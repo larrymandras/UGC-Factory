@@ -77,7 +77,7 @@ function help() {
     npx ugc-factory --help               Show this help
 
   After installing, restart Claude Code and run /ugc-factory.
-  Requires the Higgsfield MCP: https://higgsfield.ai/s/higgsfield-mcp-ig-charlieautomates-dBaWAw
+  Requires the Higgsfield MCP: https://higgsfield.ai/s/higgsfield-mcp-v-2-ig-charlieautomates-LKwfPT
 `);
 }
 

@@ -24,7 +24,7 @@ As a marketer, I want a finished UGC video ad with a consistent on-screen creato
 
 <step name="check_higgsfield" priority="first">
 Confirm the Higgsfield MCP is connected (tools `mcp__higgsfield__*` available). If not, give the user:
-- Install link: https://higgsfield.ai/s/higgsfield-mcp-ig-charlieautomates-dBaWAw
+- Install link: https://higgsfield.ai/s/higgsfield-mcp-v-2-ig-charlieautomates-LKwfPT
 - Setup help video: https://www.youtube.com/watch?v=SY8kQ6qe4YQ
 
 Do not fall back to any other generator. Nano Banana Pro and GPT Image 2 in this skill are Higgsfield-native image models, not the deprecated standalone nanobanana-mcp.
