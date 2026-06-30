@@ -48,9 +48,13 @@ the Higgsfield tools + the ffmpeg media tool, granted to **Hildr**. The upstream
   (`character-creation.md`) but omits the tool from `allowed-tools`; the port must include it.
 - **Add `balance` + `show_plans_and_credits`** (F2) — needed for the pre-generation cost estimate
   (see Guardrails); the skill has no cost tool at all.
-- **Add `generate_audio`** (F4) — the skill's style guides prescribe music/VO/sound but the pipeline
-  produces a **silent** ad; needed to score a VO/music track before the ffmpeg mux. (Larry also has
-  the `acestep` music MCP as an alternative source.)
+- **Add `generate_audio` + `text2speech_v2` + `list_voices`** (F4 — re-scoped after the 2026-06-30
+  test, see Track A validation). The pipeline produces a **silent** ad, and Seedance's *native* audio
+  (`generate_audio:true` on `generate_video`) **mangles spoken words** ("bottle" → "bossel"/"bottler"
+  across two takes). Dialogue must come from a **scripted TTS track** (`text2speech_v2`, e.g.
+  ElevenLabs voice via `list_voices`), never Seedance native TTS. (Larry also has the `acestep` music
+  MCP for a music bed.) **Lip-sync caveat:** no Higgsfield-native tool lip-syncs a scripted VO to
+  face-on dialogue — see the validation verdict below; this drives a shot-selection rule in #3.
 - **Add `virality_predictor`** (F5) — optional closing quality pass on the final cut.
 
 ### 3. Ported pipeline — playbook/prompt for Hildr
@@ -66,9 +70,17 @@ into an Ástríðr-native playbook the creative agent loads. Adaptations:
   marketing prose (e.g. `07-ecommerce-ad` = 928 lines, "Seedance 2.0" ×56). Distil each to its
   agent-actionable core — hook patterns, camera/motion vocabulary, the category playbook table —
   before loading into the Hildr playbook. Raw, they are a heavy per-invocation token cost.
-- **Optional audio + virality steps (F4/F5).** After stitch, optionally score a VO/music bed via
-  `generate_audio` (or `acestep`) and mux it in with ffmpeg, then optionally run `virality_predictor`
-  on the final cut and surface the score. Both gated/optional — they must not block a silent-but-valid ad.
+- **Dialogue is VO-led, not lip-sync-led (F4 — hardened by the 2026-06-30 test).** For any ad with
+  spoken lines: generate a **scripted TTS VO** (`text2speech_v2`) of the exact script, then mux it
+  with ffmpeg. Do **not** rely on Seedance native audio (garbles words) and do **not** promise tight
+  lip-sync (Seedance `audio_references` conditions timing/ambience, not phonemes — lips stay loose).
+  **Shot-selection rule:** author speaking beats over B-roll, product shots, hands/application, or
+  creator framings that are *not* tight face-on talking (over-shoulder, looking away, walking),
+  so loose sync is never exposed; reserve tight face-on close-ups for *non-speaking* beats. If
+  face-on dialogue is a hard requirement, that needs a **dedicated lip-sync/talking-head model
+  outside Seedance** — call it out as an open dependency, do not assume Seedance covers it.
+- **Optional music + virality steps (F5).** Optionally lay a music bed (`acestep`) under the VO and
+  run `virality_predictor` on the final cut. Both gated/optional — they must not block a valid ad.
 - **Output:** same per-ad folder layout under `higgsfield-generations/` inside the agent's workspace,
   with assets + state also persisted to the registry in deliverable #4.
 
@@ -128,3 +140,61 @@ single phase; consider splitting the Supabase registry (#4) from the pipeline po
 review board *is* a UI surface but is explicitly follow-on (likely a CodePulse handoff phase, like
 the v21 swarm view) — spec it only if/when that board is built, not for the core port.
 config/ schema owned by Zeta; Hildr persona/agent owned by Beta.
+
+## Track A validation — live test run (2026-06-30)
+
+Ran the upstream `/ugc-factory` skill end-to-end before committing to the port, to satisfy the
+SEED-005 gate ("dormant, gated on Track A proving good output"). One full ad: generic skincare
+serum ("LUMÉ"), GPT Image 2 + Seedance 2.0, 9:16, 15s / 1 clip, keyframe-pinned, Elements-first.
+Cost: a clean ad ≈ **76 credits**; the full iterative session (3 video re-renders chasing the audio
+bug) ≈ **212 credits** on the Ultra plan.
+
+### Gate verdict: VISUALS PASS, AUDIO/DIALOGUE FAILS
+- **Visual pipeline is excellent and worth porting verbatim.** Character + product **Element lock
+  held across every beat**, including a tight application close-up — same creator, same bottle, label
+  ("LUMÉ / Vitamin C Brightening Serum") legible in the product shot, the keyframe, *and* the moving
+  video. Per-beat motion (push-in hook → raise/rack-focus reveal → serum-application demo → settle
+  CTA) executed as scripted. Reads as authentic UGC. **GPT Image 2 is the right call for branded
+  product text** (it rendered the label cleanly; this is why the model routing matters).
+- **Audio/dialogue is the blocking gap.** Three approaches were tested, all fail for face-on spoken
+  dialogue:
+  1. **Seedance native audio** (`generate_audio:true`): perfect lip-sync, but **garbles the words** —
+     "your first bottle" came out **"bossel"** then **"bottler"** on two separate renders. Non-
+     deterministic and **uncorrectable in-language**: `voice_change` keeps the (wrong) words,
+     `dubbing` re-transcribes the garbled audio and only translates. Unusable for any spoken CTA.
+  2. **Scripted TTS VO muxed post-hoc** (ElevenLabs via `text2speech_v2`, ffmpeg overlay): words
+     correct, but **zero lip-sync** — mouth was animated for Seedance's own audio. Larry's words:
+     "a disaster… a mess."
+  3. **Scripted VO as Seedance `audio_references`, then mux** (the "proper" VO-first method): words
+     correct, visual intact, but **lip-sync still loose / out of sync**. Seedance ingested the audio
+     as an `_sfx`/ambient reference, not phoneme-level lip-sync. Larry confirmed: "still loose… way
+     out of sync."
+
+**Conclusion:** there is **no Higgsfield-native path that delivers BOTH correct words AND tight
+lip-sync** for face-on dialogue. Pick one: correct-words-loose-lips (scripted VO) or
+right-lips-wrong-words (Seedance native). For an ad you actually ship, correct words win — so the
+port goes **VO-led**, and **shot selection must hide the loose sync** (speak over B-roll / product /
+hands / non-face-on framing; reserve tight face-on close-ups for non-speaking beats). True face-on
+talking-head dialogue requires a **dedicated lip-sync model outside Seedance** — an open dependency,
+not something the current toolchain covers. This is folded into deliverables #2 and #3 (F4) above.
+
+### Secondary findings (smaller, fold into plan)
+- **Style routing for beauty is off.** `beauty/cosmetics → 13-fashion-lookbook` gave apparel/runway
+  craft for a serum demo. Worked only because it was adapted by hand. Revisit the routing map (a
+  `07-ecommerce-ad` or dedicated beauty route fits better) when condensing the style guides (F6).
+- **The "3–4 angle-set" character step is fragile.** Independently generating angles risks casting
+  *different people* and muddying the Element. The test used **one strong front portrait** instead
+  (fine for front-facing ads). Port should prescribe **reference-chained angles** (generate front,
+  derive other angles *from it*) or explicitly accept single-portrait Elements for front-on ads.
+- **Image quality defaults to `low`/1k.** Acceptable, but the port should set quality **explicitly
+  per asset** (the product/label shot was bumped to `high` to keep the text crisp).
+- **F2 (cost tool) validated as real.** There is no native cost surface; spend had to be eyeballed
+  via `balance`. The pre-generation estimate at the beat-sheet gate is a genuine, confirmed value-add.
+- **F4 silent-ad framing was too soft.** The original "produces a silent ad" understates it — the
+  real problem is that the *only* lip-synced audio path produces *wrong words*. Re-scoped above.
+
+### Net recommendation
+Port is justified — the visual engine is strong and the Element-lock is the whole value. But the
+plan must treat **dialogue/audio as a first-class design problem, not optional polish**, and either
+(a) commit to VO-led ads with sync-hiding shot selection, or (b) budget a separate lip-sync model.
+Decide this at discuss/plan time; it changes the playbook's shot vocabulary and the tool-kit.

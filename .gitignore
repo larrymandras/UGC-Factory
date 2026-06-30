@@ -5,3 +5,6 @@ node_modules/
 .env.*
 npm-debug.log*
 *.tgz
+
+# Generated UGC test/output assets (large media — keep out of the repo)
+higgsfield-generations/
