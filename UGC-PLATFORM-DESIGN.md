@@ -86,6 +86,17 @@ brief ─► cast ─► beat_sheet ─►(HITL: approve + cost gate)─► keyf
 The worker model means **no inbound networking** for the engine: it reaches out to Supabase, claims
 jobs, writes progress. Run it on Larry's laptop *or* hosted — same code, one config flag.
 
+**Integration direction — north vs south (decided 2026-06-30):**
+- **Southbound (engine → Higgsfield):** the **REST API + official Python SDK** with a static key
+  (§8.5). The engine **never** shells out to a CLI for Higgsfield and **does not** use the OAuth MCP —
+  driving a CLI subprocess or an interactive-agent MCP from inside a polled, multi-tenant worker is an
+  anti-pattern (brittle stdout parsing / OAuth indirection; no clean retry/idempotency/credit
+  accounting).
+- **Northbound (things → engine):** the engine **exposes** a **CLI** (`ugc …`, for Larry/batch) + an
+  **HTTP/in-process API** (for CodePulse, Airtable-via-n8n, Hildr), and **optionally an MCP wrapper**
+  so any agent (Hildr, Claude Code) can call the engine as a native tool. MCP belongs here, on the
+  agent-facing edge — not on the southbound hop to Higgsfield.
+
 ---
 
 ## 2. Multi-tenancy (external clients run it too)
