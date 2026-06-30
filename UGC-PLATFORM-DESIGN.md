@@ -176,7 +176,8 @@ Reads need no engine API (Supabase realtime); writes are just row inserts the en
   bootstrap-resolved). No surface holds them. Clients never see them.
 - Per-tenant RLS on every table + Storage path; signed, expiring URLs out.
 - Content moderation on client briefs/assets before paid render.
-- Higgsfield auth = **OAuth, not a static key** — see §8.5 (the Phase-0 critical-path item).
+- Higgsfield: the **engine uses the REST API + static `HIGGSFIELD_API_KEY`** (§8.5); the OAuth MCP
+  is only the interactive/Claude-Code path. The key lives in the engine env, never on a surface.
 
 ## 8.5 Higgsfield headless auth — investigation verdict (2026-06-30)
 Investigated astridr's MCP layer + how Claude Code authenticates Higgsfield. Findings:
@@ -196,23 +197,31 @@ Investigated astridr's MCP layer + how Claude Code authenticates Higgsfield. Fin
   MCP-OAuth subsystem (`tengu_mcp_local_oauth_blocked_hosts`) and a `.credentials.json` store; the
   Higgsfield tokens live there, obtained via the browser OAuth flow at install (the affiliate link).
 
-**Implication — two difficulty tiers, depending on what Higgsfield offers for server-to-server use:**
-1. **If Higgsfield exposes a static API key / personal access token / client-credentials grant**
-   (server-to-server) → **SMALL fix**: add `headers: dict[str,str] | None` to `MCPServerConfig` +
-   `MCPServerEntry`, resolve a `SecretRef` (`required=False`, so a missing token doesn't trip
-   bootstrap fail-fast) into `Authorization: Bearer …`, and pass `headers=` to `streamablehttp_client`
-   (the SDK accepts it). Then `mcp-servers.yaml` gets a `higgsfield` entry with a `headers` block —
-   identical shape to how github/supabase/n8n are wired in Claude Code.
-2. **If Higgsfield is OAuth-only (no static key)** → **MEDIUM**: implement an MCP-OAuth client in
-   astridr (authorization-code consent once, persist + refresh the token via the credential store),
-   passing the SDK's `auth=` provider to `streamablehttp_client`. Heavier, but a reusable capability
-   (other OAuth MCPs benefit). **Alternative:** check for a **Higgsfield REST API with an API key**
-   and bypass the MCP entirely for the headless engine (the MCP is a convenience layer; a REST key
-   would be the cleanest server-to-server path).
+**RESOLVED (2026-06-30, web research) — Phase-0 gate CLEARED. Use the REST API, not the MCP.**
+Higgsfield ships a first-class **Cloud REST API with static API-key auth** — the easy path exists:
+- **Base URL:** `https://api.higgsfield.ai/v1/`
+- **Auth:** `Authorization: Bearer <HIGGSFIELD_API_KEY>` (static key; key + optional secret). Keys
+  minted at `cloud.higgsfield.ai/api-keys`.
+- **Endpoints:** `POST /v1/generations` (e.g. `task: text-to-image` / `image-to-video`),
+  `GET /v1/generations/{id}` (status poll), `DELETE /v1/generations/{id}` (cancel).
+- **Official Python SDK:** `higgsfield-ai/higgsfield-client` (sync + async) — drops straight into the
+  astridr (Python/async) engine.
 
-**Next action (gates Phase 0):** confirm with Higgsfield whether a static API key / PAT /
-client-credentials grant (or a REST API) exists. That single answer picks tier 1 vs tier 2 and
-unblocks the engine build. Until then, treat tier 2 (OAuth) as the planning assumption.
+**Engine decision:** the headless engine talks to the **Higgsfield REST API with an API key**
+(a `SecretRef` `HIGGSFIELD_API_KEY`, `required=False`, in astridr bootstrap) — **bypassing the
+OAuth MCP entirely**. This means:
+- **No OAuth client work**, and **no change to astridr's MCP layer** — the MCP's missing-`headers`
+  gap (above) is now moot for this engine. (The MCP stays as the *interactive* path: it's how the
+  Track A test ran in Claude Code; the headless engine just doesn't use it.)
+- The engine port maps the pipeline onto REST calls (`POST /v1/generations` + poll `GET …/{id}`)
+  rather than copying the MCP tool calls 1:1.
+
+**Secondary verification (plan-time, NOT blocking Phase 0):**
+- Confirm the REST API exposes the same primitives the pipeline needs — **Elements** (character/
+  product reference), **audio_references** (for VO conditioning), and the **`seedance_2_0`** model
+  + params — since the REST request/response shapes differ from the MCP tool schemas used in the test.
+- Confirm whether REST usage draws from the **same Ultra-plan credits** or a **separate API credit
+  pool** — this feeds the per-tenant cost gate (§2).
 
 ---
 
@@ -231,10 +240,11 @@ Phases 0–2 are the engine (also the Hildr port). Phase 3 is the CodePulse dail
 it to clients. This is **a milestone in astridr + a milestone in codepulse**, sharing one Supabase spine.
 
 ## 9. Open questions / risks
-- **Higgsfield headless auth — investigated (§8.5).** Verdict: transport ready; astridr's http-MCP
-  path has no auth field; **Higgsfield uses OAuth, not a static key.** Open sub-question that picks
-  the difficulty tier: does Higgsfield offer a static API key / client-credentials / REST API for
-  server-to-server use? Confirm before Phase 0.
+- **Higgsfield headless auth — RESOLVED (§8.5). Phase-0 gate cleared.** Higgsfield has a REST API
+  (`api.higgsfield.ai/v1`) with static Bearer API-key auth + an official Python SDK. The engine uses
+  the **REST API + `HIGGSFIELD_API_KEY`**, bypassing the OAuth MCP — no OAuth work, no MCP-layer
+  change. Remaining (non-blocking) checks: REST exposes Elements/audio_references/`seedance_2_0`;
+  whether REST draws Ultra credits or a separate API pool (feeds the cost gate).
 - **Lip-sync ceiling** — if face-on dialogue is ever required, budget a dedicated lip-sync model; until then, VO-led + shot-selection.
 - **Credit blast radius** — external clients on your Ultra plan; per-tenant budgets + cost gate are mandatory, not optional.
 - **Airtable attachment expiry** — n8n must download on arrival; never store the Airtable URL.
